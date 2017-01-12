@@ -9,7 +9,9 @@ var express = require('express'),
 var appLibrary = new AppLibrary();
 
 app.get('/steam-apps', function (request, response) {
-    response.end('hello @ steam-apps');
+    appLibrary.getSummary(function (data) {
+        response.end(data);
+    });
 });
 
 app.get('/steam-apps/:appid', function (request, response) {

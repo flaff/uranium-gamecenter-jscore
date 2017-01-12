@@ -3,6 +3,7 @@ var http = require('http'),
 
     directory = 'app-library/',
     appsFile = '_apps',
+    summaryFile = '_summary',
     ext = '.json',
     encoding = 'utf8',
 
@@ -11,6 +12,91 @@ var http = require('http'),
 
 
 function AppLibrary () {}
+
+var parseSteamAppToSummary = function (appid, data) {
+    var result = {};
+
+    if(data[appid] && data[appid].success) {
+        data = data[appid].data;
+
+        result.name = data.name;
+        result.appid = appid;
+        result.controller = data['controller_support'];
+        result.cover = data['header_image'];
+        result.categories = data.categories;
+        result.genres = data.genres;
+        result.background = data.background;
+
+        return result;
+
+    } else {
+        // empty object, wrong data?
+        return false;
+    }
+};
+
+AppLibrary.prototype.getSummary = function (callback) {
+    fs.readFile(directory + summaryFile + ext, function (error, data) {
+        if(error) {
+            callback(JSON.stringify({'result':'notfound'}));
+        } else {
+            callback(data);
+        }
+    });
+};
+
+AppLibrary.prototype.addToSummary = function (appid, appdata) {
+
+    fs.readFile(directory + summaryFile + ext, function (error, data) {
+        if(error) {
+            console.log('error adding to summary:', appid, error);
+            return;
+        }
+
+
+        appdata = parseSteamAppToSummary(appid, JSON.parse(appdata));
+        data = JSON.parse(data);
+        if(appdata) {
+            data.steamApps.push(appdata);
+            fs.writeFile(directory + summaryFile + ext, JSON.stringify(data), encoding, function (e) {
+                if(e) console.log('error updating summary', appid, e);
+                else console.log('updated summary');
+            });
+        }
+    });
+};
+
+AppLibrary.prototype.removeFromSummary = function (appid) {
+    var i, found = -1, swap;
+    fs.readFile(directory + summaryFile + ext, function (error, data) {
+        if(error) {
+            console.log('error reading summary:', appid, error);
+            return;
+        }
+        data = JSON.parse(data);
+
+        if(!data.steamApps){
+            swap = {steamApps: data};
+            data = swap;
+        }
+
+
+        for(i = 0; i < data.steamApps.length; i++) {
+            if(data.steamApps[i].appid === appid) {
+                found = i;
+                break;
+            }
+        }
+
+        if(found !== -1) {
+            data.steamApps.splice(found, 1);
+            fs.writeFile(directory + summaryFile + ext, JSON.stringify(data), encoding, function (e) {
+                if(e) console.log('error updating summary (removal)', appid, e);
+                else console.log('updated summary');
+            });
+        }
+    });
+};
 
 AppLibrary.prototype.setLocalSteamApp = function (appid, data) {
     // stworz plik steamApp po appid
@@ -49,6 +135,7 @@ AppLibrary.prototype.removeSteamApp = function (appid, callback) {
     fs.unlink(directory + appid + ext, function (error) {
         if(error) console.log('error removing file', appid, '(not found)');
     });
+    this.removeFromSummary(appid);
     fs.readFile(directory + appsFile + ext, function (error, data) {
         if(error) {
             console.log('read error @', directory + appsFile + ext, error);
@@ -78,6 +165,7 @@ AppLibrary.prototype.addSteamApp = function (appid, callback) {
         if (error) {
             console.log('not found, downloading:', appid);
             self.fetchSteamApp(appid, function (data) {
+                self.addToSummary(appid, data);
                 self.setLocalSteamApp(appid, data);
                 callback(data);
             });
