@@ -1,5 +1,6 @@
 var http = require('http'),
     fs = require('fs'),
+    htj = require('html-to-json'),
 
     directory = 'app-library/',
     appsFile = '_apps',
@@ -8,7 +9,8 @@ var http = require('http'),
     encoding = 'utf8',
 
     steamHost = 'store.steampowered.com',
-    steamPath = '/api/appdetails?language=polish&appids=';
+    steamPath = '/api/appdetails?language=polish&appids=',
+    steamQueryPath = '/search/suggest?f=games&cc=PL&l=polish&term=';
 
 
 function AppLibrary () {}
@@ -35,6 +37,40 @@ var parseSteamAppToSummary = function (appid, data) {
     }
 };
 
+function parseQueryResult (data) {
+    var parsed = [], i, len;
+    if(!data || !data.images) {
+        return {'result': 'parsing_error'};
+    }
+
+    len = data.images.length;
+    for(i = 0; i < len; i++) {
+        parsed.push({
+            appid: data.appids[i],
+            name: data.names[i],
+            cover: data.images[i],
+            price: data.prices[i]
+        });
+    }
+    return parsed;
+}
+
+AppLibrary.prototype.query = function (query, callback) {
+    var parseOptions = {
+            'images': ['img', function (dom) { return dom.attr('src') }],
+            'names': ['.match_name', function (dom) { return dom.text() }],
+            'appids': ['.ds_collapse_flag', function (dom) { return dom.attr('data-ds-appid') }],
+            'prices': ['.match_price', function (dom) { return dom.text() }]
+        };
+
+    console.log('making query request', steamHost + steamQueryPath + query);
+
+
+    htj.request('http://' + steamHost + steamQueryPath + query, parseOptions, function (error, data) {
+        callback(JSON.stringify({suggestions: parseQueryResult(data)}));
+    });
+};
+
 AppLibrary.prototype.getSummary = function (callback) {
     fs.readFile(directory + summaryFile + ext, function (error, data) {
         if(error) {
@@ -58,6 +94,14 @@ AppLibrary.prototype.addToSummary = function (appid, appdata) {
         data = JSON.parse(data);
         if(appdata) {
             data.steamApps.push(appdata);
+            data.steamApps.sort(function (a,b) {
+                if (a.name.toLowerCase() < b.name.toLowerCase()) {
+                    return -1;
+                } else if (a.name.toLowerCase() > b.name.toLowerCase()) {
+                    return 1;
+                }
+                return 0;
+            });
             fs.writeFile(directory + summaryFile + ext, JSON.stringify(data), encoding, function (e) {
                 if(e) console.log('error updating summary', appid, e);
                 else console.log('updated summary');
@@ -75,12 +119,6 @@ AppLibrary.prototype.removeFromSummary = function (appid) {
         }
         data = JSON.parse(data);
 
-        if(!data.steamApps){
-            swap = {steamApps: data};
-            data = swap;
-        }
-
-
         for(i = 0; i < data.steamApps.length; i++) {
             if(data.steamApps[i].appid === appid) {
                 found = i;
@@ -90,6 +128,14 @@ AppLibrary.prototype.removeFromSummary = function (appid) {
 
         if(found !== -1) {
             data.steamApps.splice(found, 1);
+            data.steamApps.sort(function (a,b) {
+                if (a.name.toLowerCase() < b.name.toLowerCase()) {
+                    return -1;
+                } else if (a.name.toLowerCase() > b.name.toLowerCase()) {
+                    return 1;
+                }
+                return 0;
+            });
             fs.writeFile(directory + summaryFile + ext, JSON.stringify(data), encoding, function (e) {
                 if(e) console.log('error updating summary (removal)', appid, e);
                 else console.log('updated summary');
@@ -167,11 +213,15 @@ AppLibrary.prototype.addSteamApp = function (appid, callback) {
             self.fetchSteamApp(appid, function (data) {
                 self.addToSummary(appid, data);
                 self.setLocalSteamApp(appid, data);
-                callback(data);
+                // callback(data);
+                var localCallback = function (data) {
+                    callback({result: 'success', steamApps: data});
+                };
+                self.getSummary(localCallback);
             });
         } else {
             console.log('found local copy of', appid);
-            callback(data);
+            self.getSummary(callback);
         }
     });
 };

@@ -8,6 +8,13 @@ var express = require('express'),
 
 var appLibrary = new AppLibrary();
 
+app.get('/steam-search/:query', function (request, response) {
+    appLibrary.query(request.params.query, function (result) {
+        response.writeHead(200, {'Content-Type': 'text/plain', 'Access-Control-Allow-Origin' : '*' });
+        response.end(result);
+    });
+});
+
 app.get('/steam-apps', function (request, response) {
     appLibrary.getSummary(function (data) {
         response.writeHead(200, {'Content-Type': 'text/plain', 'Access-Control-Allow-Origin' : '*' });
